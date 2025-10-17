@@ -11,6 +11,7 @@ HEIGHT = 600
 GRAVITY = 0.8
 JUMP_STRENGTH = -15
 PLAYER_SPEED = 5
+ENEMY_SPEED = 2
 
 # --- GAME STATE ---
 game_state = 'main_menu'
@@ -19,6 +20,7 @@ sound_on = True
 # --- GLOBAL OBJECTS ---
 player = None
 platforms = []
+enemies = []  # Nova lista para os inimigos
 
 # --- MAIN MENU BUTTONS ---
 start_button = Rect(WIDTH/2 - 100, HEIGHT/2 - 25, 200, 50)
@@ -28,30 +30,29 @@ exit_button = Rect(WIDTH/2 - 100, HEIGHT/2 + 95, 200, 50)
 # --- CUSTOM CLASSES ---
 
 class Player:
+    # (A classe Player continua a mesma de antes, sem alterações)
     def __init__(self, x, y):
-        self.rect = Rect(x, y, 40, 60)
+        self.rect = Rect(x, y, 32, 32)
         self.velocity_y = 0
         self.on_ground = False
         self.facing_right = True
-        
         self.state = 'idle'
         self.frame_index = 0
         self.animation_timer = 0
         self.animation_speed = 0.1
         self.frames = {
-            'idle': ['player_idle_1', 'player_idle_2'],
-            'run': ['player_run_1', 'player_run_2'],
-            'jump': ['player_jump']
+            'idle': {'right': ['player_idle_1', 'player_idle_2'], 'left': ['player_idle_1_left', 'player_idle_2_left']},
+            'run': {'right': ['player_run_1', 'player_run_2'], 'left': ['player_run_1_left', 'player_run_2_left']},
+            'jump': {'right': ['player_jump'], 'left': ['player_jump_left']}
         }
-        self.image = self.frames[self.state][self.frame_index]
-
+        self.image = self.frames[self.state]['right'][self.frame_index]
     def animate(self):
+        direction = 'right' if self.facing_right else 'left'
         self.animation_timer += 1 / 60
         if self.animation_timer > self.animation_speed:
             self.animation_timer = 0
-            self.frame_index = (self.frame_index + 1) % len(self.frames[self.state])
-            self.image = self.frames[self.state][self.frame_index]
-
+            self.frame_index = (self.frame_index + 1) % len(self.frames[self.state][direction])
+        self.image = self.frames[self.state][direction][self.frame_index]
     def update(self, platforms):
         dx, dy = 0, 0
         is_moving = False
@@ -63,18 +64,18 @@ class Player:
             dx = PLAYER_SPEED
             self.facing_right = True
             is_moving = True
-
+        new_state = 'idle'
         if not self.on_ground:
-            self.state = 'jump'
+            new_state = 'jump'
         elif is_moving:
-            self.state = 'run'
-        else:
-            self.state = 'idle'
-
+            new_state = 'run'
+        if self.state != new_state:
+            self.state = new_state
+            self.frame_index = 0
+            self.animation_timer = 0
         self.velocity_y += GRAVITY
         if self.velocity_y > 10: self.velocity_y = 10
         dy += self.velocity_y
-
         self.on_ground = False
         for plat in platforms:
             if plat.colliderect(self.rect.x + dx, self.rect.y, self.rect.width, self.rect.height):
@@ -87,31 +88,66 @@ class Player:
                     dy = plat.top - self.rect.bottom
                     self.velocity_y = 0
                     self.on_ground = True
-
         self.rect.x += dx
         self.rect.y += dy
         self.animate()
-
     def jump(self):
         if self.on_ground:
             self.velocity_y = JUMP_STRENGTH
+    def draw(self):
+        screen.blit(self.image, self.rect)
+
+# --- NOVA CLASSE ENEMY ---
+class Enemy:
+    def __init__(self, x, y, patrol_end_x):
+        self.rect = Rect(x, y, 32, 32)
+        self.patrol_start_x = x
+        self.patrol_end_x = patrol_end_x
+        self.direction = 1  # 1 for right, -1 for left
+        
+        # Animation
+        self.frame_index = 0
+        self.animation_timer = 0
+        self.animation_speed = 0.15 # Slower animation than player
+        self.frames = {
+            'right': ['enemy_walk_1', 'enemy_walk_2'],
+            'left': ['enemy_walk_1_left', 'enemy_walk_2_left']
+        }
+
+    def animate(self):
+        direction = 'right' if self.direction == 1 else 'left'
+        self.animation_timer += 1 / 60
+        if self.animation_timer > self.animation_speed:
+            self.animation_timer = 0
+            self.frame_index = (self.frame_index + 1) % len(self.frames[direction])
+        self.image = self.frames[direction][self.frame_index]
+
+    def update(self):
+        # Move the enemy
+        self.rect.x += ENEMY_SPEED * self.direction
+        
+        # Check if it reached the patrol limits
+        if self.rect.right > self.patrol_end_x or self.rect.left < self.patrol_start_x:
+            self.direction *= -1 # Invert direction
+        
+        self.animate()
 
     def draw(self):
-        actor_to_draw = Actor(self.image)
-        actor_to_draw.topleft = self.rect.topleft
-        if not self.facing_right:
-            actor_to_draw.image = actor_to_draw._flip_x()
-        actor_to_draw.draw()
+        screen.blit(self.image, self.rect)
 
 # --- GAME SETUP FUNCTION ---
 def setup_game():
-    """Initializes and resets the game objects."""
-    global player, platforms
+    global player, platforms, enemies
     player = Player(100, HEIGHT - 200)
     platforms = [
         Rect(0, HEIGHT - 40, WIDTH, 40),
         Rect(200, HEIGHT - 150, 150, 20),
         Rect(450, HEIGHT - 250, 150, 20)
+    ]
+    # Cria os inimigos e os adiciona à lista
+    enemies = [
+        Enemy(200, HEIGHT - 150 - 32, 320), # Patrulha na plataforma 1
+        Enemy(450, HEIGHT - 250 - 32, 570)  # Patrulha na plataforma 2
     ]
 
 # --- MUSIC ---
@@ -148,6 +184,7 @@ def on_mouse_down(pos):
 
 # --- STATE-SPECIFIC DRAW FUNCTIONS ---
 def draw_main_menu():
+    # ... (código do menu sem alterações) ...
     screen.fill('darkgreen')
     screen.draw.text('Jungle Jumper', center=(WIDTH/2, HEIGHT/4), fontsize=70, color='white', owidth=1, ocolor='black')
     screen.draw.filled_rect(start_button, 'green')
@@ -162,6 +199,11 @@ def draw_playing():
     screen.fill((135, 206, 235))
     for plat in platforms:
         screen.draw.filled_rect(plat, 'saddlebrown')
+    
+    # Desenha cada inimigo na lista
+    for enemy in enemies:
+        enemy.draw()
+        
     player.draw()
 
 def draw_game_over():
@@ -173,6 +215,14 @@ def update_playing():
     player.update(platforms)
     if keyboard.space or keyboard.up:
         player.jump()
+    
+    # Atualiza cada inimigo e verifica colisões
+    for enemy in enemies:
+        enemy.update()
+        if player.rect.colliderect(enemy.rect):
+            # Inimigo é perigoso! Reinicia o jogo.
+            print("Player hit by enemy! Resetting level.")
+            setup_game()
 
 def update_game_over():
     pass
